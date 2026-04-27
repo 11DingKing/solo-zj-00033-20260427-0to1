@@ -1,0 +1,695 @@
+<script lang="ts">
+  import { page, goto } from '$app/stores';
+  import { onMount } from 'svelte';
+  import CodeEditor from '$lib/components/CodeEditor.svelte';
+  import { api, auth } from '$lib/api';
+  import type { Snippet, Version, Comment, SnippetFile, User } from '$lib/types';
+  import { getLanguageLabel } from '$lib/types';
+
+  let snippet: Snippet | null = null;
+  let versions: Version[] = [];
+  let comments: Comment[] = [];
+  let activeFileIndex: number = 0;
+  let newComment: string = '';
+  let loading: boolean = true;
+  let error: string = '';
+  let liked: boolean = false;
+  let submittingComment: boolean = false;
+
+  $: snippetId = $page.params.id;
+
+  async function loadSnippet() {
+    try {
+      const [snippetRes, versionsRes, commentsRes] = await Promise.all([
+        api.get(`/api/snippets/${snippetId}`, $auth.token),
+        api.get(`/api/snippets/${snippetId}/versions`),
+        api.get(`/api/snippets/${snippetId}/comments`)
+      ]);
+
+      if (snippetRes.ok) {
+        snippet = await snippetRes.json();
+      } else if (snippetRes.status === 403) {
+        error = 'This snippet is private';
+      } else if (snippetRes.status === 404) {
+        error = 'Snippet not found';
+      }
+
+      if (versionsRes.ok) {
+        versions = await versionsRes.json();
+      }
+
+      if (commentsRes.ok) {
+        comments = await commentsRes.json();
+      }
+
+      if (snippet && $auth.token) {
+        try {
+          const likeRes = await api.get(`/api/snippets/${snippetId}/like`, $auth.token);
+          if (likeRes.ok) {
+            const data = await likeRes.json();
+            liked = data.liked;
+          }
+        } catch (e) {
+          // Ignore like check errors
+        }
+      }
+    } catch (e) {
+      error = 'Failed to load snippet';
+      console.error(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleLike() {
+    if (!$auth.token) {
+      goto('/login');
+      return;
+    }
+
+    if (!snippet) return;
+
+    try {
+      const response = await api.post(`/api/snippets/${snippetId}/like`, {}, $auth.token);
+      if (response.ok) {
+        const data = await response.json();
+        liked = data.liked;
+        snippet.likes_count = data.likes_count;
+      }
+    } catch (e) {
+      console.error('Failed to like:', e);
+    }
+  }
+
+  async function handleFork() {
+    if (!$auth.token) {
+      goto('/login');
+      return;
+    }
+
+    if (!snippet) return;
+
+    try {
+      const response = await api.post(`/api/snippets/${snippetId}/fork`, {}, $auth.token);
+      if (response.ok) {
+        const data = await response.json();
+        goto(`/snippet/${data.id}`);
+      }
+    } catch (e) {
+      console.error('Failed to fork:', e);
+    }
+  }
+
+  async function handleComment(e: SubmitEvent) {
+    e.preventDefault();
+    if (!$auth.token) {
+      goto('/login');
+      return;
+    }
+
+    if (!newComment.trim()) return;
+
+    submittingComment = true;
+    try {
+      const response = await api.post(
+        `/api/snippets/${snippetId}/comments`,
+        { content: newComment.trim() },
+        $auth.token
+      );
+
+      if (response.ok) {
+        const comment = await response.json();
+        comments = [...comments, comment];
+        newComment = '';
+      }
+    } catch (e) {
+      console.error('Failed to comment:', e);
+    } finally {
+      submittingComment = false;
+    }
+  }
+
+  function formatDate(dateStr: string): string {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  function getEmbedUrl(): string {
+    return `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/embed/${snippetId}`;
+  }
+
+  onMount(() => {
+    loadSnippet();
+  });
+</script>
+
+<div class="snippet-detail-page">
+  {#if loading}
+    <div class="loading">Loading snippet...</div>
+  {:else if error}
+    <div class="error-state">
+      <h2>{error}</h2>
+      <a href="/" class="btn btn-secondary">Go Home</a>
+    </div>
+  {:else if snippet}
+    <div class="snippet-header">
+      <div class="snippet-title-bar">
+        <div class="snippet-info">
+          <h1 class="snippet-title">{snippet.title}</h1>
+          <div class="snippet-meta">
+            <a href={`/user/${snippet.user.id}`} class="author">
+              {snippet.user.display_name || snippet.user.username}
+            </a>
+            <span class="separator">·</span>
+            <span class="language">{getLanguageLabel(snippet.language)}</span>
+            <span class="separator">·</span>
+            <span class="timestamp">{formatDate(snippet.created_at)}</span>
+            {#if snippet.parent_id}
+              <span class="separator">·</span>
+              <a href={`/snippet/${snippet.parent_id}`} class="forked-from">Forked</a>
+            {/if}
+          </div>
+        </div>
+        <div class="snippet-actions">
+          {#if $auth.user?.id === snippet.user.id}
+            <a href={`/snippet/${snippet.id}/edit`} class="btn btn-secondary">Edit</a>
+          {/if}
+          <button 
+            class="btn {liked ? 'btn-liked' : 'btn-secondary'}"
+            on:click={handleLike}
+          >
+            ❤️ {snippet.likes_count}
+          </button>
+          <button class="btn btn-secondary" on:click={handleFork}>
+            🍴 Fork
+          </button>
+        </div>
+      </div>
+
+      {#if snippet.description}
+        <div class="snippet-description">
+          {snippet.description}
+        </div>
+      {/if}
+
+      {#if snippet.tags.length > 0}
+        <div class="snippet-tags">
+          {#each snippet.tags as tag}
+            <a href={`/search?tags=${tag}`} class="tag">#{tag}</a>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="snippet-stats">
+        <span class="stat">👁️ {snippet.views_count} views</span>
+        <span class="stat">🍴 {snippet.forks_count} forks</span>
+        <span class="stat">📄 {snippet.files.length} files</span>
+        <span class="stat">
+          🔗 Embed: 
+          <code class="embed-url">{getEmbedUrl()}</code>
+        </span>
+      </div>
+    </div>
+
+    {#if snippet.files.length > 0}
+      <div class="code-section">
+        <div class="file-tabs">
+          {#each snippet.files as file, index}
+            <button 
+              class="file-tab {activeFileIndex === index ? 'active' : ''}"
+              on:click={() => activeFileIndex = index}
+            >
+              {file.filename}
+            </button>
+          {/each}
+        </div>
+
+        <div class="code-editor">
+          <CodeEditor
+            value={snippet.files[activeFileIndex].content}
+            language={snippet.files[activeFileIndex].language || snippet.language}
+            readOnly={true}
+          />
+        </div>
+      </div>
+    {/if}
+
+    {#if versions.length > 0}
+      <div class="section">
+        <h2 class="section-title">📜 Version History</h2>
+        <div class="versions-list">
+          {#each versions as version}
+            <div class="version-item">
+              <div class="version-info">
+                <span class="version-number">v{version.version_number}</span>
+                <span class="version-message">
+                  {version.commit_message || 'No message'}
+                </span>
+              </div>
+              <span class="version-date">{formatDate(version.created_at)}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <div class="section">
+      <h2 class="section-title">💬 Comments ({comments.length})</h2>
+      
+      {#if $auth.token}
+        <form class="comment-form" on:submit={handleComment}>
+          <textarea
+            bind:value={newComment}
+            placeholder="Add a comment (Markdown supported)..."
+            rows={3}
+            disabled={submittingComment}
+          />
+          <button type="submit" class="btn btn-primary" disabled={submittingComment || !newComment.trim()}>
+            {submittingComment ? 'Posting...' : 'Post Comment'}
+          </button>
+        </form>
+      {:else}
+        <div class="login-prompt">
+          <a href="/login">Login</a> to comment
+        </div>
+      {/if}
+
+      <div class="comments-list">
+        {#each comments as comment}
+          <div class="comment">
+            <div class="comment-header">
+              <a href={`/user/${comment.user.id}`} class="comment-author">
+                {comment.user.display_name || comment.user.username}
+              </a>
+              <span class="comment-date">{formatDate(comment.created_at)}</span>
+            </div>
+            <div class="comment-content">
+              {comment.content}
+            </div>
+          </div>
+        {/each}
+
+        {#if comments.length === 0}
+          <div class="empty-state">No comments yet. Be the first!</div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .snippet-detail-page {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 80px;
+    color: #858585;
+    font-size: 16px;
+  }
+
+  .error-state {
+    text-align: center;
+    padding: 80px;
+  }
+
+  .error-state h2 {
+    margin: 0 0 20px 0;
+    color: #f44336;
+  }
+
+  .snippet-header {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .snippet-title-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 16px;
+  }
+
+  .snippet-info {
+    flex: 1;
+  }
+
+  .snippet-title {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 600;
+    color: #569cd6;
+  }
+
+  .snippet-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 14px;
+    color: #858585;
+  }
+
+  .author {
+    color: #4ec9b0;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .author:hover {
+    text-decoration: underline;
+  }
+
+  .separator {
+    color: #555;
+  }
+
+  .language {
+    background: #333;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #ce9178;
+    font-weight: 500;
+  }
+
+  .forked-from {
+    color: #007acc;
+    text-decoration: none;
+  }
+
+  .forked-from:hover {
+    text-decoration: underline;
+  }
+
+  .snippet-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .snippet-description {
+    padding: 16px;
+    background: #252526;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    line-height: 1.6;
+    color: #ccc;
+  }
+
+  .snippet-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .tag {
+    background: rgba(0, 122, 204, 0.15);
+    color: #007acc;
+    padding: 4px 10px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 13px;
+  }
+
+  .tag:hover {
+    background: rgba(0, 122, 204, 0.25);
+  }
+
+  .snippet-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #333;
+    font-size: 13px;
+    color: #858585;
+  }
+
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .embed-url {
+    background: #252526;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #ccc;
+  }
+
+  .code-section {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  .file-tabs {
+    display: flex;
+    background: #252526;
+    border-bottom: 1px solid #333;
+    overflow-x: auto;
+  }
+
+  .file-tab {
+    background: none;
+    border: none;
+    padding: 12px 20px;
+    color: #858585;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .file-tab:hover {
+    background: #2d2d2d;
+    color: #ccc;
+  }
+
+  .file-tab.active {
+    background: #1e1e1e;
+    color: #fff;
+    border-bottom: 2px solid #007acc;
+  }
+
+  .code-editor {
+    min-height: 400px;
+    max-height: 600px;
+    overflow: auto;
+  }
+
+  .section {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .section-title {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .versions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .version-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #252526;
+    border-radius: 6px;
+  }
+
+  .version-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .version-number {
+    background: #007acc;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .version-message {
+    color: #ccc;
+  }
+
+  .version-date {
+    color: #858585;
+    font-size: 13px;
+  }
+
+  .comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .comment-form textarea {
+    padding: 12px 16px;
+    background: #252526;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 80px;
+  }
+
+  .comment-form textarea:focus {
+    outline: none;
+    border-color: #007acc;
+  }
+
+  .login-prompt {
+    padding: 16px;
+    background: #252526;
+    border-radius: 6px;
+    text-align: center;
+    margin-bottom: 24px;
+    color: #858585;
+  }
+
+  .login-prompt a {
+    color: #007acc;
+    text-decoration: none;
+  }
+
+  .comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .comment {
+    padding: 16px;
+    background: #252526;
+    border-radius: 6px;
+  }
+
+  .comment-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .comment-author {
+    color: #4ec9b0;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+  }
+
+  .comment-author:hover {
+    text-decoration: underline;
+  }
+
+  .comment-date {
+    color: #858585;
+    font-size: 12px;
+  }
+
+  .comment-content {
+    color: #ccc;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 32px;
+    color: #858585;
+    background: #252526;
+    border: 1px dashed #333;
+    border-radius: 6px;
+  }
+
+  .btn {
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: #007acc;
+    color: #fff;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: #005a9e;
+  }
+
+  .btn-secondary {
+    background: #333;
+    color: #ccc;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: #444;
+    color: #fff;
+  }
+
+  .btn-liked {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 768px) {
+    .snippet-title-bar {
+      flex-direction: column;
+    }
+
+    .snippet-actions {
+      width: 100%;
+    }
+
+    .snippet-actions .btn {
+      flex: 1;
+    }
+
+    .version-item {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+  }
+</style>
