@@ -5,6 +5,24 @@
   import { api, auth } from '$lib/api';
   import type { Snippet, Version, Comment, SnippetFile, User } from '$lib/types';
   import { getLanguageLabel } from '$lib/types';
+  import { marked } from 'marked';
+  import Prism from 'prismjs';
+  import 'prismjs/components/prism-javascript';
+  import 'prismjs/components/prism-typescript';
+  import 'prismjs/components/prism-python';
+  import 'prismjs/components/prism-rust';
+  import 'prismjs/components/prism-go';
+  import 'prismjs/components/prism-java';
+  import 'prismjs/components/prism-csharp';
+  import 'prismjs/components/prism-cpp';
+  import 'prismjs/components/prism-php';
+  import 'prismjs/components/prism-ruby';
+  import 'prismjs/components/prism-swift';
+  import 'prismjs/components/prism-sql';
+  import 'prismjs/components/prism-json';
+  import 'prismjs/components/prism-css';
+  import 'prismjs/components/prism-markup';
+  import 'prismjs/components/prism-bash';
 
   let snippet: Snippet | null = null;
   let versions: Version[] = [];
@@ -15,8 +33,29 @@
   let error: string = '';
   let liked: boolean = false;
   let submittingComment: boolean = false;
+  let rollingBack: boolean = false;
+  let selectedVersionForCompare: number | null = null;
 
   $: snippetId = $page.params.id;
+
+  marked.setOptions({
+    highlight: function(code, lang) {
+      if (Prism.languages[lang]) {
+        return Prism.highlight(code, Prism.languages[lang], lang);
+      }
+      return code;
+    },
+    breaks: true,
+    gfm: true
+  });
+
+  function renderMarkdown(content: string): string {
+    try {
+      return marked.parse(content) as string;
+    } catch (e) {
+      return content;
+    }
+  }
 
   async function loadSnippet() {
     try {
@@ -129,6 +168,67 @@
     }
   }
 
+  function handleCompare(versionNumber: number) {
+    if (selectedVersionForCompare === null) {
+      selectedVersionForCompare = versionNumber;
+    } else if (selectedVersionForCompare === versionNumber) {
+      selectedVersionForCompare = null;
+    } else {
+      const v1 = Math.min(selectedVersionForCompare, versionNumber);
+      const v2 = Math.max(selectedVersionForCompare, versionNumber);
+      goto(`/snippet/${snippetId}/diff?v_a=${v1}&v_b=${v2}`);
+      selectedVersionForCompare = null;
+    }
+  }
+
+  async function handleRollback(version: Version) {
+    if (!$auth.token) {
+      goto('/login');
+      return;
+    }
+
+    if (!snippet || $auth.user?.id !== snippet.user.id) {
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to rollback to version ${version.version_number}?`)) {
+      return;
+    }
+
+    rollingBack = true;
+    try {
+      const versionRes = await api.get(`/api/snippets/${snippetId}/versions/${version.version_number}`);
+      if (!versionRes.ok) {
+        throw new Error('Failed to get version data');
+      }
+      const versionData = await versionRes.json();
+
+      const updatePayload = {
+        files: versionData.files.map((f: SnippetFile) => ({
+          filename: f.filename,
+          content: f.content,
+          language: f.language || undefined
+        })),
+        commit_message: `Rollback to version ${version.version_number}: ${version.commit_message || 'No message'}`
+      };
+
+      const response = await api.put(
+        `/api/snippets/${snippetId}`,
+        updatePayload,
+        $auth.token
+      );
+
+      if (response.ok) {
+        loadSnippet();
+      }
+    } catch (e) {
+      console.error('Failed to rollback:', e);
+      error = 'Failed to rollback. Please try again.';
+    } finally {
+      rollingBack = false;
+    }
+  }
+
   function formatDate(dateStr: string): string {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', {
@@ -194,7 +294,7 @@
 
       {#if snippet.description}
         <div class="snippet-description">
-          {snippet.description}
+          {@html renderMarkdown(snippet.description)}
         </div>
       {/if}
 
@@ -242,17 +342,43 @@
 
     {#if versions.length > 0}
       <div class="section">
-        <h2 class="section-title">📜 Version History</h2>
+        <h2 class="section-title">
+          📜 Version History
+          {#if selectedVersionForCompare !== null}
+            <span class="compare-hint">
+              (Select another version to compare with v{selectedVersionForCompare})
+              <button class="clear-compare-btn" on:click={() => selectedVersionForCompare = null}>✕ Clear</button>
+            </span>
+          {/if}
+        </h2>
         <div class="versions-list">
           {#each versions as version}
-            <div class="version-item">
+            <div class="version-item {selectedVersionForCompare === version.version_number ? 'selected-for-compare' : ''}">
               <div class="version-info">
                 <span class="version-number">v{version.version_number}</span>
                 <span class="version-message">
                   {version.commit_message || 'No message'}
                 </span>
               </div>
-              <span class="version-date">{formatDate(version.created_at)}</span>
+              <div class="version-actions">
+                <span class="version-date">{formatDate(version.created_at)}</span>
+                <button 
+                  class="btn btn-small {selectedVersionForCompare === version.version_number ? 'btn-primary' : 'btn-secondary'}"
+                  on:click={() => handleCompare(version.version_number)}
+                  disabled={rollingBack}
+                >
+                  {selectedVersionForCompare === version.version_number ? 'Selected' : 'Compare'}
+                </button>
+                {#if $auth.user?.id === snippet.user.id}
+                  <button 
+                    class="btn btn-small btn-warning"
+                    on:click={() => handleRollback(version)}
+                    disabled={rollingBack}
+                  >
+                    {rollingBack ? 'Rolling back...' : 'Rollback'}
+                  </button>
+                {/if}
+              </div>
             </div>
           {/each}
         </div>
@@ -289,8 +415,8 @@
               </a>
               <span class="comment-date">{formatDate(comment.created_at)}</span>
             </div>
-            <div class="comment-content">
-              {comment.content}
+            <div class="comment-content markdown-content">
+              {@html renderMarkdown(comment.content)}
             </div>
           </div>
         {/each}
@@ -407,6 +533,35 @@
     color: #ccc;
   }
 
+  .snippet-description :global(p) {
+    margin: 0 0 10px 0;
+  }
+
+  .snippet-description :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .snippet-description :global(code) {
+    background: #1e1e1e;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #ce9178;
+  }
+
+  .snippet-description :global(pre) {
+    background: #1e1e1e;
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+
+  .snippet-description :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
   .snippet-tags {
     display: flex;
     flex-wrap: wrap;
@@ -505,6 +660,30 @@
     margin: 0 0 20px 0;
     font-size: 18px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .compare-hint {
+    font-size: 13px;
+    font-weight: 400;
+    color: #858585;
+  }
+
+  .clear-compare-btn {
+    background: rgba(244, 67, 54, 0.1);
+    border: 1px solid rgba(244, 67, 54, 0.3);
+    color: #f44336;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .clear-compare-btn:hover {
+    background: rgba(244, 67, 54, 0.2);
   }
 
   .versions-list {
@@ -520,6 +699,12 @@
     padding: 12px 16px;
     background: #252526;
     border-radius: 6px;
+    border: 2px solid transparent;
+  }
+
+  .version-item.selected-for-compare {
+    border-color: #007acc;
+    background: rgba(0, 122, 204, 0.1);
   }
 
   .version-info {
@@ -544,6 +729,12 @@
   .version-date {
     color: #858585;
     font-size: 13px;
+  }
+
+  .version-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
 
   .comment-form {
@@ -622,7 +813,151 @@
   .comment-content {
     color: #ccc;
     line-height: 1.6;
-    white-space: pre-wrap;
+  }
+
+  .comment-content :global(p) {
+    margin: 0 0 10px 0;
+  }
+
+  .comment-content :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .comment-content :global(code) {
+    background: #1e1e1e;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    color: #ce9178;
+  }
+
+  .comment-content :global(pre) {
+    background: #1e1e1e;
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 10px 0;
+  }
+
+  .comment-content :global(pre code) {
+    background: none;
+    padding: 0;
+    display: block;
+    white-space: pre;
+  }
+
+  .comment-content :global(.token.comment),
+  .comment-content :global(.token.prolog),
+  .comment-content :global(.token.doctype),
+  .comment-content :global(.token.cdata) {
+    color: #6a9955;
+  }
+
+  .comment-content :global(.token.punctuation) {
+    color: #d4d4d4;
+  }
+
+  .comment-content :global(.token.property),
+  .comment-content :global(.token.tag),
+  .comment-content :global(.token.boolean),
+  .comment-content :global(.token.number),
+  .comment-content :global(.token.constant),
+  .comment-content :global(.token.symbol),
+  .comment-content :global(.token.deleted) {
+    color: #b5cea8;
+  }
+
+  .comment-content :global(.token.selector),
+  .comment-content :global(.token.attr-name),
+  .comment-content :global(.token.string),
+  .comment-content :global(.token.char),
+  .comment-content :global(.token.builtin),
+  .comment-content :global(.token.inserted) {
+    color: #ce9178;
+  }
+
+  .comment-content :global(.token.operator),
+  .comment-content :global(.token.entity),
+  .comment-content :global(.token.url) {
+    color: #d4d4d4;
+  }
+
+  .comment-content :global(.token.atrule),
+  .comment-content :global(.token.attr-value),
+  .comment-content :global(.token.keyword) {
+    color: #569cd6;
+  }
+
+  .comment-content :global(.token.function),
+  .comment-content :global(.token.class-name) {
+    color: #dcdcaa;
+  }
+
+  .comment-content :global(.token.regex),
+  .comment-content :global(.token.important),
+  .comment-content :global(.token.variable) {
+    color: #d16969;
+  }
+
+  .comment-content :global(blockquote) {
+    border-left: 4px solid #007acc;
+    padding-left: 12px;
+    margin: 10px 0;
+    color: #858585;
+    font-style: italic;
+  }
+
+  .comment-content :global(ul),
+  .comment-content :global(ol) {
+    padding-left: 20px;
+    margin: 10px 0;
+  }
+
+  .comment-content :global(li) {
+    margin: 4px 0;
+  }
+
+  .comment-content :global(a) {
+    color: #007acc;
+    text-decoration: none;
+  }
+
+  .comment-content :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .comment-content :global(h1),
+  .comment-content :global(h2),
+  .comment-content :global(h3),
+  .comment-content :global(h4),
+  .comment-content :global(h5),
+  .comment-content :global(h6) {
+    margin: 10px 0;
+    color: #fff;
+  }
+
+  .comment-content :global(hr) {
+    border: none;
+    border-top: 1px solid #333;
+    margin: 10px 0;
+  }
+
+  .comment-content :global(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0;
+  }
+
+  .comment-content :global(th),
+  .comment-content :global(td) {
+    border: 1px solid #333;
+    padding: 8px 12px;
+    text-align: left;
+  }
+
+  .comment-content :global(th) {
+    background: #252526;
   }
 
   .empty-state {
@@ -644,6 +979,11 @@
     transition: all 0.2s;
   }
 
+  .btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
   .btn-primary {
     background: #007acc;
     color: #fff;
@@ -661,6 +1001,16 @@
   .btn-secondary:hover:not(:disabled) {
     background: #444;
     color: #fff;
+  }
+
+  .btn-warning {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+  }
+
+  .btn-warning:hover:not(:disabled) {
+    background: rgba(255, 152, 0, 0.3);
   }
 
   .btn-liked {
@@ -689,7 +1039,12 @@
     .version-item {
       flex-direction: column;
       align-items: flex-start;
-      gap: 8px;
+      gap: 12px;
+    }
+
+    .version-actions {
+      width: 100%;
+      justify-content: space-between;
     }
   }
 </style>
