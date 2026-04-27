@@ -97,29 +97,29 @@ export interface Tag {
 }
 
 export const LANGUAGES = [
-  { value: "javascript", label: "JavaScript" },
-  { value: "typescript", label: "TypeScript" },
-  { value: "python", label: "Python" },
-  { value: "rust", label: "Rust" },
-  { value: "go", label: "Go" },
-  { value: "java", label: "Java" },
-  { value: "csharp", label: "C#" },
-  { value: "cpp", label: "C++" },
-  { value: "php", label: "PHP" },
-  { value: "ruby", label: "Ruby" },
-  { value: "swift", label: "Swift" },
-  { value: "kotlin", label: "Kotlin" },
-  { value: "html", label: "HTML" },
-  { value: "css", label: "CSS" },
-  { value: "sql", label: "SQL" },
-  { value: "json", label: "JSON" },
-  { value: "yaml", label: "YAML" },
-  { value: "markdown", label: "Markdown" },
-  { value: "bash", label: "Bash" },
-  { value: "text", label: "Plain Text" },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'go', label: 'Go' },
+  { value: 'java', label: 'Java' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'php', label: 'PHP' },
+  { value: 'ruby', label: 'Ruby' },
+  { value: 'swift', label: 'Swift' },
+  { value: 'kotlin', label: 'Kotlin' },
+  { value: 'html', label: 'HTML' },
+  { value: 'css', label: 'CSS' },
+  { value: 'sql', label: 'SQL' },
+  { value: 'json', label: 'JSON' },
+  { value: 'yaml', label: 'YAML' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'bash', label: 'Bash' },
+  { value: 'text', label: 'Plain Text' }
 ];
 
 export function getLanguageLabel(value: string): string {
-  const lang = LANGUAGES.find((l) => l.value === value);
+  const lang = LANGUAGES.find(l => l.value === value);
   return lang ? lang.label : value;
 }
