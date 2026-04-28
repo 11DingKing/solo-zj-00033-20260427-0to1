@@ -7,7 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y libssl-dev pkg-config
 
 # Copy cargo files
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 
 # Create dummy main.rs to cache dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
