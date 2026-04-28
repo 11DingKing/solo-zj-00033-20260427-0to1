@@ -60,26 +60,39 @@
 
   async function loadSnippet() {
     try {
-      const [snippetRes, versionsRes, commentsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get(`/api/snippets/${snippetId}`, $auth.token),
         api.get(`/api/snippets/${snippetId}/versions`),
         api.get(`/api/snippets/${snippetId}/comments`)
       ]);
 
-      if (snippetRes.ok) {
-        snippet = await snippetRes.json();
-      } else if (snippetRes.status === 403) {
-        error = 'This snippet is private';
-      } else if (snippetRes.status === 404) {
-        error = 'Snippet not found';
+      const [snippetResult, versionsResult, commentsResult] = results;
+
+      if (snippetResult.status === 'fulfilled') {
+        const snippetRes = snippetResult.value;
+        if (snippetRes.ok) {
+          snippet = await snippetRes.json();
+        } else if (snippetRes.status === 403) {
+          error = 'This snippet is private';
+        } else if (snippetRes.status === 404) {
+          error = 'Snippet not found';
+        }
+      } else {
+        console.error('Failed to load snippet:', snippetResult.reason);
       }
 
-      if (versionsRes.ok) {
-        versions = await versionsRes.json();
+      if (versionsResult.status === 'fulfilled') {
+        const versionsRes = versionsResult.value;
+        if (versionsRes.ok) {
+          versions = await versionsRes.json();
+        }
       }
 
-      if (commentsRes.ok) {
-        comments = await commentsRes.json();
+      if (commentsResult.status === 'fulfilled') {
+        const commentsRes = commentsResult.value;
+        if (commentsRes.ok) {
+          comments = await commentsRes.json();
+        }
       }
 
       if (snippet && $auth.token) {

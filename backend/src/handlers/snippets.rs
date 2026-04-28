@@ -821,9 +821,17 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/hot", web::get().to(get_hot_snippets))
             .route("/latest", web::get().to(get_latest_snippets))
             .route("", web::post().to(create_snippet).wrap(crate::middleware::auth::Auth))
+            .route("/{snippet_id}/versions", web::get().to(crate::handlers::versions::get_versions))
+            .route("/{snippet_id}/versions/{version_number}", web::get().to(crate::handlers::versions::get_version))
+            .route("/{snippet_id}/diff/{version_a}/{version_b}", web::get().to(crate::handlers::versions::get_version_diff))
+            .route("/{snippet_id}/comments", web::get().to(crate::handlers::comments::get_comments))
+            .route("/{snippet_id}/comments", web::post().to(crate::handlers::comments::create_comment).wrap(crate::middleware::auth::Auth))
+            .route("/{snippet_id}/comments/{comment_id}", web::delete().to(crate::handlers::comments::delete_comment).wrap(crate::middleware::auth::Auth))
+            .route("/{snippet_id}/like", web::get().to(crate::handlers::likes::check_like).wrap(crate::middleware::auth::Auth))
+            .route("/{snippet_id}/like", web::post().to(crate::handlers::likes::toggle_like).wrap(crate::middleware::auth::Auth))
+            .route("/{snippet_id}/fork", web::post().to(fork_snippet).wrap(crate::middleware::auth::Auth))
             .route("/{snippet_id}", web::get().to(get_snippet).wrap(crate::middleware::auth::OptionalAuth))
             .route("/{snippet_id}", web::put().to(update_snippet).wrap(crate::middleware::auth::Auth))
             .route("/{snippet_id}", web::delete().to(delete_snippet).wrap(crate::middleware::auth::Auth))
-            .route("/{snippet_id}/fork", web::post().to(fork_snippet).wrap(crate::middleware::auth::Auth))
     );
 }
