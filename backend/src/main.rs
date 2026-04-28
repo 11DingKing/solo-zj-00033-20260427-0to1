@@ -20,7 +20,10 @@ async fn main() -> std::io::Result<()> {
 
     db::run_migrations(&pool).await.expect("Failed to run migrations");
 
-    println!("Starting server on {}:{}", config.host, config.port);
+    let host = config.host.clone();
+    let port = config.port;
+
+    println!("Starting server on {}:{}", host, port);
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -44,7 +47,7 @@ async fn main() -> std::io::Result<()> {
             .configure(handlers::search::config)
             .configure(handlers::embed::config)
     })
-    .bind((config.host.as_str(), config.port))?
+    .bind((host.as_str(), port))?
     .run()
     .await
 }

@@ -3,7 +3,7 @@ use crate::models::Claims;
 use crate::utils::jwt::validate_token;
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error,
+    Error, HttpMessage,
 };
 use futures::future::{ok, Ready, LocalBoxFuture};
 use std::cell::RefCell;

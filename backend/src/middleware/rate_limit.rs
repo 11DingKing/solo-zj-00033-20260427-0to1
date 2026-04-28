@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::models::Claims;
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse,
+    Error, HttpResponse, HttpMessage,
 };
 use futures::future::{ok, Ready, LocalBoxFuture};
 use std::cell::RefCell;

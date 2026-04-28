@@ -1,7 +1,7 @@
-use crate::models::{Snippet, SnippetResponse, User, UserResponse, SnippetFile, PaginatedResponse};
+use crate::models::{Snippet, SnippetResponse, PaginatedResponse, SnippetFile, User, UserResponse};
 use crate::handlers::snippets::build_snippet_response;
 use actix_web::{web, HttpResponse, Responder, Error};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Row};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SearchQuery {
@@ -16,95 +16,108 @@ pub async fn search_snippets(
     pool: web::Data<PgPool>,
     query: web::Query<SearchQuery>,
 ) -> Result<impl Responder, Error> {
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(20).min(100);
+    let page = query.page.unwrap_or(1) as i64;
+    let per_page = query.per_page.unwrap_or(20).min(100) as i64;
     let offset = (page - 1) * per_page;
 
-    let search_term = query.q.as_deref().unwrap_or("");
-    let language_filter = query.language.as_deref();
-    let tags_filter: Vec<&str> = query.tags.as_deref()
-        .map(|t| t.split(',').collect())
+    let search_term = query.q.clone().unwrap_or_default();
+    let language_filter = query.language.clone();
+    let tags_filter: Vec<String> = query.tags.as_deref()
+        .map(|t| t.split(',').map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    let mut conditions = Vec::new();
-    let mut params: Vec<&(dyn sqlx::Encode<'_, sqlx::Postgres> + Sync)> = Vec::new();
-    let mut param_idx = 1;
+    let snippets: Vec<Snippet>;
+    let total: i64;
 
-    conditions.push("s.is_public = true".to_string());
+    if tags_filter.is_empty() {
+        let sql = r#"
+            SELECT s.id, s.title, s.description, s.language, s.is_public, s.user_id, s.parent_id,
+                   s.likes_count, s.forks_count, s.views_count, s.created_at, s.updated_at
+            FROM snippets s
+            WHERE s.is_public = true
+              AND ($1 = '' OR s.search_vector @@ plainto_tsquery('english', $1) OR s.title ILIKE '%' || $1 || '%' OR s.description ILIKE '%' || $1 || '%')
+              AND ($2 IS NULL OR s.language = $2)
+            ORDER BY s.likes_count DESC, s.created_at DESC
+            LIMIT $3 OFFSET $4
+        "#;
 
-    if !search_term.is_empty() {
-        conditions.push(format!(
-            "(s.search_vector @@ plainto_tsquery('english', ${}) OR s.title ILIKE '%' || ${} || '%' OR s.description ILIKE '%' || ${} || '%')",
-            param_idx, param_idx, param_idx
-        ));
-        params.push(&search_term);
-        param_idx += 1;
-    }
+        let total_sql = r#"
+            SELECT COUNT(DISTINCT s.id) FROM snippets s
+            WHERE s.is_public = true
+              AND ($1 = '' OR s.search_vector @@ plainto_tsquery('english', $1) OR s.title ILIKE '%' || $1 || '%' OR s.description ILIKE '%' || $1 || '%')
+              AND ($2 IS NULL OR s.language = $2)
+        "#;
 
-    if let Some(lang) = language_filter {
-        conditions.push(format!("s.language = ${}", param_idx));
-        params.push(&lang);
-        param_idx += 1;
-    }
+        snippets = sqlx::query_as::<_, Snippet>(sql)
+            .bind(&search_term)
+            .bind(&language_filter)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(pool.get_ref())
+            .await
+            .map_err(|e| {
+                eprintln!("Database error: {}", e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })?;
 
-    let where_clause = conditions.join(" AND ");
-
-    let tags_join = if !tags_filter.is_empty() {
-        format!(
-            "JOIN snippet_tags st ON s.id = st.snippet_id JOIN tags t ON st.tag_id = t.id WHERE {} AND t.name = ANY(${})",
-            where_clause, param_idx
-        )
+        total = sqlx::query_scalar::<_, i64>(total_sql)
+            .bind(&search_term)
+            .bind(&language_filter)
+            .fetch_one(pool.get_ref())
+            .await
+            .map_err(|e| {
+                eprintln!("Database error: {}", e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })?;
     } else {
-        format!("WHERE {}", where_clause)
-    };
-
-    if !tags_filter.is_empty() {
-        params.push(&tags_filter);
-        param_idx += 1;
-    }
-
-    let snippets = sqlx::query_as!(
-        Snippet,
-        &format!(
-            r#"
+        let sql = r#"
             SELECT DISTINCT s.id, s.title, s.description, s.language, s.is_public, s.user_id, s.parent_id,
                    s.likes_count, s.forks_count, s.views_count, s.created_at, s.updated_at
             FROM snippets s
-            {}
+            JOIN snippet_tags st ON s.id = st.snippet_id
+            JOIN tags t ON st.tag_id = t.id
+            WHERE s.is_public = true
+              AND ($1 = '' OR s.search_vector @@ plainto_tsquery('english', $1) OR s.title ILIKE '%' || $1 || '%' OR s.description ILIKE '%' || $1 || '%')
+              AND ($2 IS NULL OR s.language = $2)
+              AND t.name = ANY($3)
             ORDER BY s.likes_count DESC, s.created_at DESC
-            LIMIT ${} OFFSET ${}
-            "#,
-            tags_join,
-            param_idx,
-            param_idx + 1
-        ),
-        search_term,
-        per_page,
-        offset
-    )
-    .fetch_all(pool.get_ref())
-    .await
-    .map_err(|e| {
-        eprintln!("Database error: {}", e);
-        actix_web::error::ErrorInternalServerError("Database error")
-    })?;
+            LIMIT $4 OFFSET $5
+        "#;
 
-    let total_query = format!(
-        r#"
-        SELECT COUNT(DISTINCT s.id) FROM snippets s
-        {}
-        "#,
-        tags_join
-    );
+        let total_sql = r#"
+            SELECT COUNT(DISTINCT s.id) FROM snippets s
+            JOIN snippet_tags st ON s.id = st.snippet_id
+            JOIN tags t ON st.tag_id = t.id
+            WHERE s.is_public = true
+              AND ($1 = '' OR s.search_vector @@ plainto_tsquery('english', $1) OR s.title ILIKE '%' || $1 || '%' OR s.description ILIKE '%' || $1 || '%')
+              AND ($2 IS NULL OR s.language = $2)
+              AND t.name = ANY($3)
+        "#;
 
-    let total: i64 = sqlx::query_scalar(&total_query)
-        .fetch_one(pool.get_ref())
-        .await
-        .map_err(|e| {
-            eprintln!("Database error: {}", e);
-            actix_web::error::ErrorInternalServerError("Database error")
-        })?
-        .unwrap_or(0);
+        snippets = sqlx::query_as::<_, Snippet>(sql)
+            .bind(&search_term)
+            .bind(&language_filter)
+            .bind(&tags_filter)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(pool.get_ref())
+            .await
+            .map_err(|e| {
+                eprintln!("Database error: {}", e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })?;
+
+        total = sqlx::query_scalar::<_, i64>(total_sql)
+            .bind(&search_term)
+            .bind(&language_filter)
+            .bind(&tags_filter)
+            .fetch_one(pool.get_ref())
+            .await
+            .map_err(|e| {
+                eprintln!("Database error: {}", e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })?;
+    }
 
     let mut snippet_responses = Vec::new();
     for snippet in snippets {
@@ -112,13 +125,13 @@ pub async fn search_snippets(
         snippet_responses.push(response);
     }
 
-    let total_pages = (total + per_page as i64 - 1) / per_page as i64;
+    let total_pages = (total + per_page - 1) / per_page;
 
     Ok(HttpResponse::Ok().json(PaginatedResponse {
         data: snippet_responses,
         total,
-        page: page as i64,
-        per_page: per_page as i64,
+        page,
+        per_page,
         total_pages,
     }))
 }

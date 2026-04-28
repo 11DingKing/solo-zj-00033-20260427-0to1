@@ -635,7 +635,7 @@ pub async fn fork_snippet(
     Ok(HttpResponse::Created().json(response))
 }
 
-async fn build_snippet_response(
+pub(crate) async fn build_snippet_response(
     pool: &PgPool,
     snippet: Snippet,
 ) -> Result<SnippetResponse, Error> {
@@ -707,8 +707,8 @@ pub async fn get_hot_snippets(
     pool: web::Data<PgPool>,
     query: web::Query<PaginationQuery>,
 ) -> Result<impl Responder, Error> {
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(20).min(100);
+    let page = query.page.unwrap_or(1) as i64;
+    let per_page = query.per_page.unwrap_or(20).min(100) as i64;
     let offset = (page - 1) * per_page;
 
     let snippets = sqlx::query_as!(
@@ -748,13 +748,13 @@ pub async fn get_hot_snippets(
         snippet_responses.push(response);
     }
 
-    let total_pages = (total + per_page as i64 - 1) / per_page as i64;
+    let total_pages = (total + per_page - 1) / per_page;
 
     Ok(HttpResponse::Ok().json(PaginatedResponse {
         data: snippet_responses,
         total,
-        page: page as i64,
-        per_page: per_page as i64,
+        page,
+        per_page,
         total_pages,
     }))
 }
@@ -763,8 +763,8 @@ pub async fn get_latest_snippets(
     pool: web::Data<PgPool>,
     query: web::Query<PaginationQuery>,
 ) -> Result<impl Responder, Error> {
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(20).min(100);
+    let page = query.page.unwrap_or(1) as i64;
+    let per_page = query.per_page.unwrap_or(20).min(100) as i64;
     let offset = (page - 1) * per_page;
 
     let snippets = sqlx::query_as!(
@@ -804,13 +804,13 @@ pub async fn get_latest_snippets(
         snippet_responses.push(response);
     }
 
-    let total_pages = (total + per_page as i64 - 1) / per_page as i64;
+    let total_pages = (total + per_page - 1) / per_page;
 
     Ok(HttpResponse::Ok().json(PaginatedResponse {
         data: snippet_responses,
         total,
-        page: page as i64,
-        per_page: per_page as i64,
+        page,
+        per_page,
         total_pages,
     }))
 }

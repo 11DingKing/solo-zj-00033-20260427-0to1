@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
+use actix_web::{FromRequest, dev::Payload, HttpRequest, Error, HttpMessage};
+use actix_web::error::ErrorUnauthorized;
+use std::future::{ready, Ready};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
@@ -194,6 +197,25 @@ pub struct Claims {
     pub username: String,
     pub exp: usize,
     pub iat: usize,
+}
+
+impl FromRequest for Claims {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        ready(
+            req.extensions()
+                .get::<Claims>()
+                .cloned()
+                .ok_or_else(|| {
+                    ErrorUnauthorized(serde_json::json!({
+                        "error": "unauthorized",
+                        "message": "Authentication required"
+                    }))
+                }),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
