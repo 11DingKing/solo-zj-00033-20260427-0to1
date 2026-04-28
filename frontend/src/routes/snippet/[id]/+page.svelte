@@ -1,29 +1,13 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import CodeEditor from '$lib/components/CodeEditor.svelte';
   import { api, auth } from '$lib/api';
   import type { Snippet, Version, Comment, SnippetFile, User } from '$lib/types';
   import { getLanguageLabel } from '$lib/types';
   import { marked } from 'marked';
-  import Prism from 'prismjs';
-  import 'prismjs/components/prism-javascript';
-  import 'prismjs/components/prism-typescript';
-  import 'prismjs/components/prism-python';
-  import 'prismjs/components/prism-rust';
-  import 'prismjs/components/prism-go';
-  import 'prismjs/components/prism-java';
-  import 'prismjs/components/prism-csharp';
-  import 'prismjs/components/prism-cpp';
-  import 'prismjs/components/prism-php';
-  import 'prismjs/components/prism-ruby';
-  import 'prismjs/components/prism-swift';
-  import 'prismjs/components/prism-sql';
-  import 'prismjs/components/prism-json';
-  import 'prismjs/components/prism-css';
-  import 'prismjs/components/prism-markup';
-  import 'prismjs/components/prism-bash';
 
   let snippet: Snippet | null = null;
   let versions: Version[] = [];
@@ -40,22 +24,25 @@
   $: snippetId = $page.params.id;
 
   marked.setOptions({
-    highlight: function(code, lang) {
-      if (Prism.languages[lang]) {
-        return Prism.highlight(code, Prism.languages[lang], lang);
-      }
-      return code;
-    },
     breaks: true,
     gfm: true
   });
 
   function renderMarkdown(content: string): string {
+    if (!browser) {
+      return escapeHtml(content).replace(/\n/g, '<br>');
+    }
     try {
       return marked.parse(content) as string;
     } catch (e) {
-      return content;
+      return escapeHtml(content).replace(/\n/g, '<br>');
     }
+  }
+
+  function escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   async function loadSnippet() {
