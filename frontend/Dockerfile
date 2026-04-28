@@ -12,6 +12,9 @@ RUN npm config set registry https://registry.npmmirror.com && npm install --lega
 # Copy source code
 COPY . .
 
+# Set API URL for build
+ENV VITE_API_URL=http://localhost:8080
+
 # Build the app
 RUN npm run build
 

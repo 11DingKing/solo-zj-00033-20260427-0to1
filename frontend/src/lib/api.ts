@@ -1,7 +1,9 @@
 import { writable, type Writable } from 'svelte/store';
 import type { User } from '$lib/types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_URL = typeof window !== 'undefined' 
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:8080')
+  : 'http://backend:8080';
 
 export interface AuthState {
   token: string | null;
