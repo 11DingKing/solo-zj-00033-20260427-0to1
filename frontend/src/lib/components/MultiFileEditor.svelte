@@ -87,7 +87,7 @@
         <input 
           type="text" 
           value={files[activeIndex].filename}
-          on:input={(e) => updateFilename(activeIndex, (e.target as HTMLInputElement).value)}
+          on:input={(e) => updateFilename(activeIndex, e.currentTarget.value)}
           placeholder="filename.ext"
         />
       </div>
@@ -95,7 +95,7 @@
         <label>Language:</label>
         <select 
           value={files[activeIndex].language || 'text'}
-          on:change={(e) => updateFileLanguage(activeIndex, (e.target as HTMLSelectElement).value)}
+          on:change={(e) => updateFileLanguage(activeIndex, e.currentTarget.value)}
         >
           <option value="text">Plain Text</option>
           <option value="javascript">JavaScript</option>

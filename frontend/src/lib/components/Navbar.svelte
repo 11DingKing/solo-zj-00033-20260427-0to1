@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { page, goto } from '$app/stores';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { auth } from '$lib/api';
   let searchQuery: string = '';
 

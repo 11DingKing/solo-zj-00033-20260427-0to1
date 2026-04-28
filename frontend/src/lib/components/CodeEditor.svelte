@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { EditorState, basicSetup } from '@codemirror/basic-setup';
-  import { EditorView, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, keymap, placeholder } from '@codemirror/view';
+  import { EditorState } from '@codemirror/state';
+  import { EditorView, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, foldKeymap, indentOnInput, syntaxTree } from '@codemirror/language';
+  import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language';
   import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
-  import { autocompleteKeymap } from '@codemirror/autocomplete';
+  import { completionKeymap } from '@codemirror/autocomplete';
   import { lintKeymap } from '@codemirror/lint';
   import { javascript } from '@codemirror/lang-javascript';
   import { python } from '@codemirror/lang-python';
@@ -66,7 +66,7 @@
     if (!container) return;
 
     const extensions: Extension[] = [
-      basicSetup,
+      history(),
       lineNumbers(),
       highlightActiveLineGutter(),
       foldGutter(),
@@ -80,12 +80,12 @@
       crosshairCursor(),
       highlightActiveLine(),
       highlightSelectionMatches(),
-      placeholder(placeholder),
+      cmPlaceholder(placeholder),
       keymap.of([
         ...defaultKeymap,
         ...historyKeymap,
         ...searchKeymap,
-        ...autocompleteKeymap,
+        ...completionKeymap,
         ...lintKeymap,
         indentWithTab
       ]),

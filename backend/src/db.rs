@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, Executor};
 use std::fs;
 use std::path::Path;
 
@@ -27,19 +27,9 @@ pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
         if path.extension().map(|e| e == "sql").unwrap_or(false) {
             let sql = fs::read_to_string(&path)?;
             
-            let statements: Vec<&str> = sql
-                .split(';')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            for stmt in statements {
-                if !stmt.is_empty() {
-                    sqlx::query(stmt)
-                        .execute(pool)
-                        .await?;
-                }
-            }
+            // Execute the entire SQL file as raw SQL to handle dollar-quoted strings
+            pool.execute(sql.as_str())
+                .await?;
             println!("Executed migration: {:?}", entry.file_name());
         }
     }

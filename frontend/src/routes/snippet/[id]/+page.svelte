@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { page, goto } from '$app/stores';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import CodeEditor from '$lib/components/CodeEditor.svelte';
   import { api, auth } from '$lib/api';
