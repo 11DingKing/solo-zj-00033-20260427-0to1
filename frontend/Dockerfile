@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install --legacy-peer-deps
+RUN npm config set registry https://registry.npmmirror.com && npm install --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -25,7 +25,7 @@ COPY --from=builder /app/build ./build
 COPY --from=builder /app/package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production --legacy-peer-deps
+RUN npm config set registry https://registry.npmmirror.com && npm ci --only=production --legacy-peer-deps
 
 # Expose port
 EXPOSE 5173
